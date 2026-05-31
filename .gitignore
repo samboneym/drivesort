@@ -1,0 +1,12 @@
+data/token.json
+data/credentials.json
+data/embedding_cache.json
+data/taxonomy.json
+data/novel_files.json
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.DS_Store

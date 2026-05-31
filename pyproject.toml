@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "drivesort"
+version = "0.1.0"
+description = "Local-AI Google Drive organiser with open-set classification"
+requires-python = ">=3.10"
+dependencies = [
+    "sentence-transformers>=2.7.0",
+    "umap-learn>=0.5.6",
+    "hdbscan>=0.8.38",
+    "scikit-learn>=1.4.0",
+    "numpy>=1.26.0",
+    "google-api-python-client>=2.120.0",
+    "google-auth-httplib2>=0.2.0",
+    "google-auth-oauthlib>=1.2.0",
+    "ollama>=0.2.0",
+    "rich>=13.7.0",
+    "typer>=0.12.0",
+    "python-dotenv>=1.0.0",
+    "joblib>=1.3.0",
+]
+
+[project.scripts]
+drivesort = "drivesort.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["drivesort*"]
