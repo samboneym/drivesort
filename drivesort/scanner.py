@@ -129,7 +129,9 @@ class Scanner:
         # Novel files
         # ------------------------------------------------------------------
         if novel_files:
-            self._handle_novel_files(novel_files)
+            self._handle_novel_files(novel_files, embeddings_map={
+                f.id: embeddings[i] for i, f in enumerate(files)
+            })
 
         # ------------------------------------------------------------------
         # Periodic re-cluster novel accumulation
@@ -232,7 +234,7 @@ class Scanner:
             else:
                 console.print("  [dim]Skipped[/dim]")
 
-    def _handle_novel_files(self, decisions: list[ScanDecision]) -> None:
+    def _handle_novel_files(self, decisions: list[ScanDecision], embeddings_map: dict[str, np.ndarray]) -> None:
         console.rule("[yellow]Novel Files — Don't Fit Any Category[/yellow]")
         console.print(f"[dim]{len(decisions)} files logged for re-clustering.[/dim]\n")
 
@@ -262,8 +264,15 @@ class Scanner:
                         if not self._dry_run:
                             folder = self._drive.create_folder(new_folder)
                             self._drive.move_file(d.file, folder.id)
-                            # Bootstrap this new category with one file
-                            # (will be strengthened as more files confirm)
+                            emb = embeddings_map.get(d.file.id)
+                            if emb is not None:
+                                self._taxonomy.add_category(
+                                    name=new_folder,
+                                    description=suggestion.get("similar_files_hint", ""),
+                                    folder_id=folder.id,
+                                    member_embeddings=emb.reshape(1, -1),
+                                    member_ids=[d.file.id],
+                                )
                             console.print(f"  [green]✓ Created '{new_folder}' and moved file.[/green]")
                 else:
                     console.print(f"  [dim]{d.file.name}[/dim] → LLM says Archive is fine  [dim]({rationale})[/dim]")

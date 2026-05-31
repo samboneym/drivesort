@@ -113,10 +113,16 @@ def run_bootstrap(
     # Resolve merges
     # ------------------------------------------------------------------
     for cluster in result.clusters:
-        if cluster.merged_into and cluster.merged_into in accepted:
-            target_cluster, target_name = accepted[cluster.merged_into]
-            target_cluster.files.extend(cluster.files)
-            console.print(f"[cyan]Merged[/cyan] '{cluster.suggested_name}' → '{target_name}'")
+        if cluster.merged_into:
+            if cluster.merged_into in accepted:
+                target_cluster, target_name = accepted[cluster.merged_into]
+                target_cluster.files.extend(cluster.files)
+                console.print(f"[cyan]Merged[/cyan] '{cluster.suggested_name}' → '{target_name}'")
+            else:
+                console.print(f"[yellow]Merge target '{cluster.merged_into}' not found — sending to Archive[/yellow]")
+                archive_cluster = accepted.get("Archive")
+                if archive_cluster:
+                    archive_cluster[0].files.extend(cluster.files)
 
     # ------------------------------------------------------------------
     # Handle outliers

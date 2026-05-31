@@ -65,7 +65,7 @@ class Embedder:
         vectors: list[np.ndarray] = []
 
         # Split into cache hits and misses
-        hits, misses, miss_indices = [], [], []
+        misses = []
         hit_map: dict[int, np.ndarray] = {}
 
         for i, f in enumerate(files_list):
