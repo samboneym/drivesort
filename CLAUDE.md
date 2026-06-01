@@ -6,13 +6,14 @@ Local-AI Google Drive organiser. Discovers folder taxonomy from files using unsu
 
 ```
 drivesort/
-  drive.py       — Google Drive API client (DriveFile value object + DriveClient wrapper)
-  embedder.py    — sentence-transformers (all-MiniLM-L6-v2, 384-dim) with on-disk cache
-  clusterer.py   — UMAP (384→2D) + HDBSCAN + Ollama LLM cluster naming
-  taxonomy.py    — Persisted centroids, classify(), OOD detection, incremental learning
-  bootstrap.py   — One-time interactive Rich TUI for reviewing clusters
-  scanner.py     — Ongoing scan: auto-move / review / novel detection
-  cli.py         — Typer CLI: bootstrap / scan / status
+  drive.py             — Google Drive API client (DriveFile value object + DriveClient wrapper)
+  embedder.py          — sentence-transformers (all-MiniLM-L6-v2, 384-dim) with on-disk cache
+  content_extractor.py — per-type content enrichment (Drive export, PDF, code, vision LLM captions)
+  clusterer.py         — UMAP (384→2D) + HDBSCAN + Ollama LLM cluster naming
+  taxonomy.py          — Persisted centroids, classify(), OOD detection, incremental learning
+  bootstrap.py         — One-time interactive Rich TUI for reviewing clusters
+  scanner.py           — Ongoing scan: auto-move / review / novel detection
+  cli.py               — Typer CLI: bootstrap / scan / status
 ```
 
 ## Key invariants
@@ -35,8 +36,8 @@ These are intentionally consistent: confidence = 1 - distance.
 
 ```bash
 pip install -e .
-drivesort bootstrap [--min-cluster-size N] [--model MODEL]
-drivesort scan [--live] [--no-interact]
+drivesort bootstrap [--min-cluster-size N] [--model MODEL] [--vision-model MODEL] [--no-extract]
+drivesort scan [--live] [--no-interact] [--vision-model MODEL] [--no-extract]
 drivesort status
 ```
 
@@ -61,4 +62,5 @@ pytest tests/
 - `token.json` — cached auth token
 - `taxonomy.json` — category centroids + folder IDs
 - `embedding_cache.json` — cached file embeddings
+- `content_cache.json` — cached extracted text per file (same SHA1 key as embedding cache)
 - `novel_files.json` — accumulated novel files for re-clustering

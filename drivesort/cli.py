@@ -25,17 +25,23 @@ from .clusterer import Clusterer
 from .taxonomy import Taxonomy
 from .bootstrap import run_bootstrap
 from .scanner import Scanner
+from .content_extractor import ContentExtractor
 
 app     = typer.Typer(help="DriveSort — local-AI Google Drive organiser")
 console = Console()
 
 
-def _build_components(dry_run: bool = True):
-    drive    = DriveClient()
-    embedder = Embedder()
-    taxonomy = Taxonomy()
+def _build_components(
+    dry_run: bool = True,
+    vision_model: str = "llava-phi3",
+    no_extract: bool = False,
+):
+    drive     = DriveClient()
+    extractor = None if no_extract else ContentExtractor(drive, vision_model=vision_model)
+    embedder  = Embedder(extractor=extractor)
+    taxonomy  = Taxonomy()
     clusterer = Clusterer()
-    scanner  = Scanner(drive, embedder, taxonomy, clusterer, dry_run=dry_run)
+    scanner   = Scanner(drive, embedder, taxonomy, clusterer, dry_run=dry_run)
     return drive, embedder, taxonomy, clusterer, scanner
 
 
@@ -43,6 +49,8 @@ def _build_components(dry_run: bool = True):
 def bootstrap(
     min_cluster_size: int = typer.Option(3, help="Minimum files to form a cluster"),
     model: str = typer.Option("phi3:mini", help="Ollama model for cluster naming"),
+    vision_model: str = typer.Option("llava-phi3", "--vision-model", help="Ollama vision model for image/video captioning"),
+    no_extract: bool = typer.Option(False, "--no-extract", help="Skip content extraction, use metadata only"),
 ):
     """
     One-time bootstrap: discover categories from your Drive, review them,
@@ -50,9 +58,10 @@ def bootstrap(
     """
     console.print("[bold magenta]DriveSort Bootstrap[/bold magenta]\n")
 
-    drive    = DriveClient()
-    embedder = Embedder()
-    taxonomy = Taxonomy()
+    drive     = DriveClient()
+    extractor = None if no_extract else ContentExtractor(drive, vision_model=vision_model)
+    embedder  = Embedder(extractor=extractor)
+    taxonomy  = Taxonomy()
     clusterer = Clusterer(min_cluster_size=min_cluster_size, ollama_model=model)
 
     if not taxonomy.is_empty():
@@ -81,14 +90,18 @@ def bootstrap(
 def scan(
     live: bool = typer.Option(False, "--live", help="Actually move files (default is dry-run)"),
     no_interact: bool = typer.Option(False, "--no-interact", help="Skip interactive review; only auto-moves"),
+    vision_model: str = typer.Option("llava-phi3", "--vision-model", help="Ollama vision model for image/video captioning"),
+    no_extract: bool = typer.Option(False, "--no-extract", help="Skip content extraction, use metadata only"),
 ):
     """
     Classify and optionally move unorganised files.
     Default is dry-run — pass --live to make real changes.
     """
-    _, embedder, taxonomy, clusterer, scanner = _build_components(dry_run=not live)
-    drive = DriveClient()
-    scanner = Scanner(drive, embedder, taxonomy, clusterer, dry_run=not live)
+    _, _, _, _, scanner = _build_components(
+        dry_run=not live,
+        vision_model=vision_model,
+        no_extract=no_extract,
+    )
     scanner.scan(interactive=not no_interact)
 
 

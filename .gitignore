@@ -1,8 +1,4 @@
-data/token.json
-data/credentials.json
-data/embedding_cache.json
-data/taxonomy.json
-data/novel_files.json
+data/
 .venv/
 __pycache__/
 *.pyc

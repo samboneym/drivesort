@@ -50,6 +50,7 @@ class DriveFile:
         "id", "name", "mime_type", "extension", "parent_id",
         "size_bytes", "snippet", "created", "modified", "is_folder",
         "description", "video_duration_ms",
+        "thumbnail_link", "image_media_metadata",
     )
 
     def __init__(self, raw: dict) -> None:
@@ -67,6 +68,8 @@ class DriveFile:
         self.video_duration_ms = int(
             raw.get("videoMediaMetadata", {}).get("durationMillis", 0)
         )
+        self.thumbnail_link        = raw.get("thumbnailLink", "")
+        self.image_media_metadata  = raw.get("imageMediaMetadata", {})
 
     def text_for_embedding(self) -> str:
         """Concatenate the signals available without downloading the file."""
@@ -101,7 +104,9 @@ class DriveClient:
         "nextPageToken,"
         "files(id,name,mimeType,fileExtension,parents,size,"
         "contentHints/indexableText,createdTime,modifiedTime,"
-        "description,videoMediaMetadata/durationMillis)"
+        "description,videoMediaMetadata/durationMillis,"
+        "thumbnailLink,"
+        "imageMediaMetadata(location,time,cameraMake,cameraModel,width,height))"
     )
 
     def __init__(
@@ -219,6 +224,26 @@ class DriveClient:
     # ------------------------------------------------------------------
     # Writing (moves only — we never delete or rename)
     # ------------------------------------------------------------------
+
+    def export_file(self, file_id: str, export_mime: str) -> bytes:
+        """Export a Google Workspace file as the given MIME type."""
+        return (
+            self._service.files()
+            .export_media(fileId=file_id, mimeType=export_mime)
+            .execute()
+        )
+
+    def download_file(self, file_id: str) -> bytes:
+        """Download a non-Workspace file's raw bytes."""
+        import io
+        from googleapiclient.http import MediaIoBaseDownload
+        request = self._service.files().get_media(fileId=file_id)
+        buf = io.BytesIO()
+        downloader = MediaIoBaseDownload(buf, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        return buf.getvalue()
 
     def move_file(self, file: DriveFile, target_folder_id: str) -> None:
         """

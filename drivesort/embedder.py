@@ -10,12 +10,15 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
 from .drive import DriveFile
+
+if TYPE_CHECKING:
+    from .content_extractor import ContentExtractor
 
 MODEL_NAME   = "all-MiniLM-L6-v2"   # 80 MB, fast, good quality
 CACHE_PATH   = Path("data/embedding_cache.json")
@@ -37,10 +40,12 @@ class Embedder:
         self,
         model_name: str = MODEL_NAME,
         cache_path: Path = CACHE_PATH,
+        extractor: "ContentExtractor | None" = None,
     ) -> None:
         self._model      = SentenceTransformer(model_name)
         self._cache_path = cache_path
         self._cache: dict[str, list[float]] = self._load_cache()
+        self._extractor  = extractor
 
     # ------------------------------------------------------------------
     # Public API
@@ -77,7 +82,10 @@ class Embedder:
 
         # Batch-encode misses
         if misses:
-            texts  = [f.text_for_embedding() for _, f, _ in misses]
+            if self._extractor is not None:
+                texts = [self._extractor.extract(f) for _, f, _ in misses]
+            else:
+                texts = [f.text_for_embedding() for _, f, _ in misses]
             batch  = self._model.encode(
                 texts,
                 show_progress_bar=show_progress,
