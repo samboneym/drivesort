@@ -128,7 +128,7 @@ class DriveClient:
         Yield every file the authenticated user owns.
         Folders are excluded by default (they contribute no content signal).
         """
-        query = "trashed = false and owner = 'me'"
+        query = "trashed = false and 'me' in owners"
         if not include_folders:
             query += " and mimeType != 'application/vnd.google-apps.folder'"
 
@@ -157,7 +157,7 @@ class DriveClient:
             self._service.files()
             .list(
                 q="mimeType = 'application/vnd.google-apps.folder' "
-                  "and trashed = false and owner = 'me'",
+                  "and trashed = false and 'me' in owners",
                 fields="files(id,name,mimeType,parents)",
                 pageSize=200,
             )

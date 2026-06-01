@@ -19,8 +19,11 @@ import numpy as np
 import umap
 import hdbscan
 import ollama
+from rich.console import Console
 
 from .drive import DriveFile
+
+console = Console()
 
 OLLAMA_MODEL = "phi3:mini"   # ~2 GB, fast, works well zero-shot
 
@@ -104,7 +107,8 @@ class Clusterer:
             metric="cosine",
             random_state=42,
         )
-        emb_2d = reducer.fit_transform(embeddings)
+        with console.status("[cyan]Reducing dimensions with UMAP…[/cyan]"):
+            emb_2d = reducer.fit_transform(embeddings)
 
         # 2. Cluster in 2D space (HDBSCAN performs better here than on raw high-D)
         clusterer = hdbscan.HDBSCAN(
@@ -112,7 +116,8 @@ class Clusterer:
             metric="euclidean",
             cluster_selection_method="eom",
         )
-        labels = clusterer.fit_predict(emb_2d)
+        with console.status("[cyan]Finding clusters with HDBSCAN…[/cyan]"):
+            labels = clusterer.fit_predict(emb_2d)
 
         # 3. Group files by label
         cluster_map: dict[int, list[DriveFile]] = {}
@@ -129,7 +134,8 @@ class Clusterer:
         # 4. Name clusters with LLM
         if name_with_llm:
             for cluster in clusters:
-                self._name_cluster(cluster)
+                with console.status(f"[cyan]Naming cluster {cluster.id + 1}/{len(clusters)} with LLM…[/cyan]"):
+                    self._name_cluster(cluster)
 
         return ClusterResult(
             clusters=clusters,
