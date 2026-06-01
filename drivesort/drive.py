@@ -21,8 +21,7 @@ from googleapiclient.errors import HttpError
 
 # Only need read + file-organisation scopes (no content write)
 SCOPES = [
-    "https://www.googleapis.com/auth/drive.readonly",
-    "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/drive",
 ]
 
 TOKEN_PATH = Path("data/token.json")
@@ -123,6 +122,7 @@ class DriveClient:
         self,
         include_folders: bool = False,
         page_size: int = 200,
+        exclude_orphans: bool = False,
     ) -> Iterator[DriveFile]:
         """
         Yield every file the authenticated user owns.
@@ -145,7 +145,10 @@ class DriveClient:
                 .execute()
             )
             for raw in resp.get("files", []):
-                yield DriveFile(raw)
+                f = DriveFile(raw)
+                if exclude_orphans and f.parent_id is None:
+                    continue
+                yield f
 
             token = resp.get("nextPageToken")
             if not token:
@@ -191,6 +194,13 @@ class DriveClient:
             removeParents=file.parent_id or "",
             fields="id, parents",
         ).execute()
+
+    def find_or_create_folder(self, name: str, parent_id: str | None = None) -> DriveFile:
+        """Return an existing folder with this name, or create it."""
+        for folder in self.list_folders():
+            if folder.name == name:
+                return folder
+        return self.create_folder(name, parent_id)
 
     def create_folder(self, name: str, parent_id: str | None = None) -> DriveFile:
         """Create a new folder and return it as a DriveFile."""

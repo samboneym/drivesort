@@ -16,6 +16,7 @@ from __future__ import annotations
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.prompt import Confirm
 from rich import box
 
 from .drive import DriveClient
@@ -60,7 +61,7 @@ def bootstrap(
 
     # 1. Fetch all files
     with console.status("Fetching files from Drive…"):
-        files = list(drive.iter_files(include_folders=False))
+        files = list(drive.iter_files(include_folders=False, exclude_orphans=True))
     console.print(f"[green]✓[/green] Found {len(files)} files\n")
 
     # 2. Embed
@@ -69,8 +70,7 @@ def bootstrap(
     console.print(f"[green]✓[/green] Embedded {len(files)} files\n")
 
     # 3. Cluster
-    with console.status("Clustering…"):
-        result = clusterer.cluster(files, embeddings, name_with_llm=True)
+    result = clusterer.cluster(files, embeddings, name_with_llm=True)
     console.print(f"[green]✓[/green] Found {len(result.clusters)} clusters, {len(result.outlier_files)} outliers\n")
 
     # 4. Interactive review → creates folders + saves taxonomy
@@ -115,6 +115,58 @@ def status():
     novel_records, _ = taxonomy.load_novel_files()
     if novel_records:
         console.print(f"\n[yellow]{len(novel_records)} novel files accumulated[/yellow] — run `scan` to re-cluster them.")
+
+
+@app.command()
+def recover(
+    live: bool = typer.Option(False, "--live", help="Actually move files (default is dry-run)"),
+):
+    """Move orphaned files (no parent folder) into RECOVERED_FILES for manual review."""
+    drive = DriveClient()
+
+    with console.status("Scanning for orphaned files…"):
+        orphans = [f for f in drive.iter_files(include_folders=False) if f.parent_id is None]
+
+    if not orphans:
+        console.print("[green]No orphaned files found.[/green]")
+        return
+
+    mode = "[dim](dry run)[/dim]" if not live else "[yellow](LIVE — will move files)[/yellow]"
+    console.print(f"Found [bold]{len(orphans)}[/bold] orphaned file(s)  {mode}\n")
+
+    t = Table(box=box.SIMPLE, show_header=True, header_style="bold cyan", padding=(0, 1))
+    t.add_column("File", style="white", no_wrap=False, max_width=52)
+    t.add_column("Type", style="dim", width=18)
+    t.add_column("Modified", style="dim", width=20)
+    for f in orphans:
+        mime_short = f.mime_type.split(".")[-1].replace("vnd.google-apps.", "")
+        t.add_row(f.name, mime_short, f.modified[:10] if f.modified else "—")
+
+    if len(orphans) > 20:
+        with console.pager():
+            console.print(t)
+    else:
+        console.print(t)
+
+    if not live:
+        console.print(f"\nRun with [bold]--live[/bold] to move these {len(orphans)} file(s) to RECOVERED_FILES.")
+        return
+
+    if not Confirm.ask(f"\nMove {len(orphans)} file(s) to RECOVERED_FILES?"):
+        console.print("[yellow]Aborted.[/yellow]")
+        return
+
+    folder = drive.find_or_create_folder("RECOVERED_FILES")
+    moved = 0
+    for f in orphans:
+        try:
+            drive.move_file(f, folder.id)
+            console.print(f"  [green]✓[/green] {f.name}")
+            moved += 1
+        except Exception as e:
+            console.print(f"  [red]✗[/red] {f.name}: {e}")
+
+    console.print(f"\n[bold green]✓ Moved {moved}/{len(orphans)} file(s) to RECOVERED_FILES.[/bold green]")
 
 
 def main():

@@ -79,7 +79,7 @@ class Scanner:
         mode = "[dim](dry run)[/dim]" if self._dry_run else "[yellow](LIVE — will move files)[/yellow]"
         console.print(f"Scanning Drive…  {mode}\n")
 
-        files        = list(self._drive.iter_files())
+        files        = list(self._drive.iter_files(exclude_orphans=True))
         auto_moves:  list[ScanDecision] = []
         for_review:  list[ScanDecision] = []
         novel_files: list[ScanDecision] = []
@@ -183,7 +183,11 @@ class Scanner:
         for d in decisions:
             t.add_row(d.file.name, d.target_folder_name, f"{d.result.confidence:.0%}")
 
-        console.print(t)
+        if len(decisions) > 20:
+            with console.pager():
+                console.print(t)
+        else:
+            console.print(t)
 
     def _interactive_review(
         self,
@@ -247,7 +251,11 @@ class Scanner:
             nearest = d.result.runner_up or "—"
             t.add_row(d.file.name, nearest, f"{d.result.distance:.2f}")
 
-        console.print(t)
+        if len(decisions) > 20:
+            with console.pager():
+                console.print(t)
+        else:
+            console.print(t)
 
         # Offer LLM suggestion for each
         if Confirm.ask("\nAsk LLM for new-category suggestions on these files?", default=False):

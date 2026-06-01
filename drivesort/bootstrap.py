@@ -130,7 +130,12 @@ def run_bootstrap(
     if result.outlier_files:
         console.rule("[dim]Unclustered Files[/dim]")
         console.print(f"\n[dim]{len(result.outlier_files)} files didn't cluster. They'll go to Archive.[/dim]")
-        console.print(_file_table(result.outlier_files, max_rows=6))
+        t = _file_table(result.outlier_files, max_rows=len(result.outlier_files))
+        if len(result.outlier_files) > 20:
+            with console.pager():
+                console.print(t)
+        else:
+            console.print(t)
 
     # ------------------------------------------------------------------
     # Create Drive folders + build taxonomy
