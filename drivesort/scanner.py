@@ -165,9 +165,15 @@ class Scanner:
         )
 
     def _file_is_organised(self, file: DriveFile) -> bool:
-        """True if the file is already in one of the taxonomy folders."""
-        known_ids = {c.folder_id for c in self._taxonomy.categories.values()}
-        return file.parent_id in known_ids
+        """True if the file is already in one of the taxonomy folders (including sub-folders)."""
+        return file.parent_id in self._taxonomy.all_folder_ids
+
+    def _display_name(self, category_name: str) -> str:
+        """Return 'Parent / Child' for sub-categories, plain name for top-level."""
+        entry = self._taxonomy.categories.get(category_name)
+        if entry and entry.parent_name:
+            return f"{entry.parent_name} / {category_name}"
+        return category_name
 
     # ------------------------------------------------------------------
     # Display helpers
@@ -181,7 +187,11 @@ class Scanner:
         t.add_column("Conf", justify="right", width=6)
 
         for d in decisions:
-            t.add_row(d.file.name, d.target_folder_name, f"{d.result.confidence:.0%}")
+            t.add_row(
+                d.file.name,
+                self._display_name(d.target_folder_name),
+                f"{d.result.confidence:.0%}",
+            )
 
         if len(decisions) > 20:
             with console.pager():
@@ -198,12 +208,14 @@ class Scanner:
         folder_names = self._taxonomy.category_names
 
         for d in decisions:
+            display = self._display_name(d.target_folder_name)
             console.print(
                 f"\n  [bold]{d.file.name}[/bold]  "
                 f"[dim]{d.file.mime_type.split('.')[-1]}[/dim]\n"
-                f"  Suggested: [green]{d.target_folder_name}[/green]  "
+                f"  Suggested: [green]{display}[/green]  "
                 f"({d.result.confidence:.0%})  "
-                f"Runner-up: [dim]{d.result.runner_up}[/dim] ({d.result.runner_up_confidence:.0%})"
+                f"Runner-up: [dim]{d.result.runner_up}[/dim]"
+                f" ({d.result.runner_up_confidence:.0%})"
             )
             if d.file.snippet:
                 console.print(f"  [dim]{d.file.snippet[:120]}…[/dim]")
@@ -217,12 +229,15 @@ class Scanner:
                 if not self._dry_run:
                     self._drive.move_file(d.file, d.target_folder_id)
                     if d.file.id in embeddings_map:
-                        self._taxonomy.confirm(d.target_folder_name, d.file.id, embeddings_map[d.file.id])
-                console.print(f"  [green]✓ → {d.target_folder_name}[/green]")
+                        self._taxonomy.confirm(
+                            d.target_folder_name, d.file.id, embeddings_map[d.file.id]
+                        )
+                console.print(f"  [green]✓ → {display}[/green]")
 
             elif action == "c":
                 for i, name in enumerate(folder_names):
-                    console.print(f"  [{i}] {name}")
+                    label = self._display_name(name)
+                    console.print(f"  [{i}] {label}")
                 idx_str = Prompt.ask("  Choose number")
                 try:
                     chosen = folder_names[int(idx_str)]
@@ -230,8 +245,10 @@ class Scanner:
                     if not self._dry_run:
                         self._drive.move_file(d.file, folder_id)
                         if d.file.id in embeddings_map:
-                            self._taxonomy.confirm(chosen, d.file.id, embeddings_map[d.file.id])
-                    console.print(f"  [green]✓ → {chosen}[/green]")
+                            self._taxonomy.confirm(
+                                chosen, d.file.id, embeddings_map[d.file.id]
+                            )
+                    console.print(f"  [green]✓ → {self._display_name(chosen)}[/green]")
                 except (ValueError, IndexError):
                     console.print("  [yellow]Invalid — skipped[/yellow]")
 

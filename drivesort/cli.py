@@ -74,7 +74,7 @@ def bootstrap(
     console.print(f"[green]✓[/green] Found {len(result.clusters)} clusters, {len(result.outlier_files)} outliers\n")
 
     # 4. Interactive review → creates folders + saves taxonomy
-    run_bootstrap(result, files, embeddings, drive, taxonomy, embedder)
+    run_bootstrap(result, files, embeddings, drive, taxonomy, embedder, clusterer)
 
 
 @app.command()
@@ -103,12 +103,14 @@ def status():
 
     t = Table(title="DriveSort Taxonomy", box=box.ROUNDED, header_style="bold cyan")
     t.add_column("Category",    style="bold white", min_width=24)
+    t.add_column("Parent",      style="dim", min_width=16)
     t.add_column("Files",       justify="right", width=7)
-    t.add_column("Description", style="dim", max_width=45)
+    t.add_column("Description", style="dim", max_width=40)
     t.add_column("Folder ID",   style="dim", max_width=30)
 
     for name, entry in taxonomy.categories.items():
-        t.add_row(name, str(entry.member_count), entry.description, entry.folder_id)
+        parent = entry.parent_name or "—"
+        t.add_row(name, parent, str(entry.member_count), entry.description, entry.folder_id)
 
     console.print(t)
 

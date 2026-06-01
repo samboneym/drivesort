@@ -144,6 +144,69 @@ class Clusterer:
         )
 
     # ------------------------------------------------------------------
+    # Sub-clustering (second pass within an accepted top-level cluster)
+    # ------------------------------------------------------------------
+
+    def sub_cluster(
+        self,
+        files: list[DriveFile],
+        embeddings: np.ndarray,
+        min_sub_cluster_size: int = 2,
+        name_with_llm: bool = True,
+    ) -> Optional[ClusterResult]:
+        """
+        Run a second clustering pass on one top-level cluster's files.
+
+        Returns None if fewer than 2 distinct sub-clusters are produced,
+        meaning sub-clustering would not add value.
+        """
+        if len(files) < 2:
+            return None
+
+        n_neighbors = min(self._umap_neighbors, max(2, len(files) // 2))
+
+        reducer = umap.UMAP(
+            n_components=2,
+            n_neighbors=n_neighbors,
+            metric="cosine",
+            random_state=42,
+        )
+        with console.status("[cyan]  Sub-clustering with UMAP…[/cyan]"):
+            emb_2d = reducer.fit_transform(embeddings)
+
+        sub_clusterer = hdbscan.HDBSCAN(
+            min_cluster_size=min_sub_cluster_size,
+            metric="euclidean",
+            cluster_selection_method="eom",
+        )
+        with console.status("[cyan]  Finding sub-clusters with HDBSCAN…[/cyan]"):
+            labels = sub_clusterer.fit_predict(emb_2d)
+
+        cluster_map: dict[int, list[DriveFile]] = {}
+        for f, label in zip(files, labels):
+            cluster_map.setdefault(int(label), []).append(f)
+
+        outlier_files = cluster_map.pop(-1, [])
+        sub_clusters = [
+            Cluster(id=cid, files=members)
+            for cid, members in sorted(cluster_map.items())
+        ]
+
+        if len(sub_clusters) < 2:
+            return None
+
+        if name_with_llm:
+            for i, sc in enumerate(sub_clusters):
+                with console.status(f"[cyan]  Naming sub-cluster {i + 1}/{len(sub_clusters)}…[/cyan]"):
+                    self._name_cluster(sc)
+
+        return ClusterResult(
+            clusters=sub_clusters,
+            embeddings_2d=emb_2d,
+            outlier_files=outlier_files,
+        )
+
+    # ------------------------------------------------------------------
     # LLM naming
     # ------------------------------------------------------------------
 

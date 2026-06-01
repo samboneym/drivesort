@@ -394,3 +394,115 @@ class TestCategoryManagement:
 
         names = empty_taxonomy.category_names
         assert set(names) == {"Cat1", "Cat2"}
+
+
+class TestHierarchy:
+    """Tests for 2-level parent/child taxonomy and two-stage classify."""
+
+    def test_load_old_taxonomy_without_parent_name(self, temp_taxonomy_path):
+        """Old taxonomy files without parent_name should load and default to None."""
+        import json
+        old_data = {
+            "Work": {
+                "name": "Work",
+                "description": "Work files",
+                "folder_id": "fold_work",
+                "centroid": [1.0, 0.0, 0.0],
+                "member_count": 1,
+                "member_ids": ["id1"],
+                # no parent_name key
+            }
+        }
+        temp_taxonomy_path.write_text(json.dumps(old_data))
+        tax = Taxonomy(path=temp_taxonomy_path)
+
+        assert "Work" in tax.categories
+        assert tax.categories["Work"].parent_name is None
+
+    def test_top_level_categories_excludes_children(self, empty_taxonomy):
+        """top_level_categories() should return only entries with parent_name=None."""
+        embs = np.array([[1.0, 0.0, 0.0]], dtype=np.float32)
+        empty_taxonomy.add_category("Parent", "P", "fold_p", embs, ["id1"], parent_name=None)
+        empty_taxonomy.add_category("Child",  "C", "fold_c", embs, ["id2"], parent_name="Parent")
+
+        top = empty_taxonomy.top_level_categories()
+        assert "Parent" in top
+        assert "Child" not in top
+
+    def test_children_of_returns_correct_children(self, empty_taxonomy):
+        """children_of() should return only children of the specified parent."""
+        embs = np.array([[1.0, 0.0, 0.0]], dtype=np.float32)
+        empty_taxonomy.add_category("A",       "A",  "f_a",  embs, ["i1"], parent_name=None)
+        empty_taxonomy.add_category("A/Sub1",  "S1", "f_s1", embs, ["i2"], parent_name="A")
+        empty_taxonomy.add_category("A/Sub2",  "S2", "f_s2", embs, ["i3"], parent_name="A")
+        empty_taxonomy.add_category("B",       "B",  "f_b",  embs, ["i4"], parent_name=None)
+        empty_taxonomy.add_category("B/Sub1",  "BS", "f_bs", embs, ["i5"], parent_name="B")
+
+        children_a = empty_taxonomy.children_of("A")
+        assert set(children_a.keys()) == {"A/Sub1", "A/Sub2"}
+
+        children_b = empty_taxonomy.children_of("B")
+        assert set(children_b.keys()) == {"B/Sub1"}
+
+    def test_all_folder_ids_includes_children(self, empty_taxonomy):
+        """all_folder_ids should include parent and child folder IDs."""
+        embs = np.array([[1.0, 0.0, 0.0]], dtype=np.float32)
+        empty_taxonomy.add_category("Parent", "P", "folder_parent", embs, ["id1"], parent_name=None)
+        empty_taxonomy.add_category("Child",  "C", "folder_child",  embs, ["id2"], parent_name="Parent")
+
+        ids = empty_taxonomy.all_folder_ids
+        assert "folder_parent" in ids
+        assert "folder_child" in ids
+
+    def test_add_category_with_parent_name_roundtrip(self, empty_taxonomy, temp_taxonomy_path):
+        """parent_name should survive save() and _load()."""
+        embs = np.array([[1.0, 0.0, 0.0]], dtype=np.float32)
+        empty_taxonomy.add_category("Parent", "P", "fp", embs, ["id1"], parent_name=None)
+        empty_taxonomy.add_category("Child",  "C", "fc", embs, ["id2"], parent_name="Parent")
+        empty_taxonomy.save()
+
+        loaded = Taxonomy(path=temp_taxonomy_path)
+        assert loaded.categories["Parent"].parent_name is None
+        assert loaded.categories["Child"].parent_name == "Parent"
+
+    def test_classify_two_stage_routes_to_child(self, empty_taxonomy):
+        """classify() should return the child category when parent has children."""
+        parent_embs = np.array([[1.0, 0.0, 0.0]], dtype=np.float32)
+        child1_embs = np.array([[0.9, 0.1, 0.0]], dtype=np.float32)
+        child2_embs = np.array([[0.9, 0.0, 0.1]], dtype=np.float32)
+
+        empty_taxonomy.add_category("Parent",  "P",  "fp",  parent_embs, ["id1"], parent_name=None)
+        empty_taxonomy.add_category("Child1",  "C1", "fc1", child1_embs, ["id2"], parent_name="Parent")
+        empty_taxonomy.add_category("Child2",  "C2", "fc2", child2_embs, ["id3"], parent_name="Parent")
+
+        query = make_unit_vector([0.9, 0.08, 0.02])
+        result = empty_taxonomy.classify(query, "f", "test.txt")
+
+        assert result.is_novel is False
+        assert result.category == "Child1"
+
+    def test_classify_no_children_returns_parent(self, empty_taxonomy):
+        """classify() should return parent name when it has no children."""
+        embs = np.array([[1.0, 0.0, 0.0]], dtype=np.float32)
+        empty_taxonomy.add_category("Parent", "P", "fp", embs, ["id1"], parent_name=None)
+
+        query = make_unit_vector([1.0, 0.0, 0.0])
+        result = empty_taxonomy.classify(query, "f", "test.txt")
+
+        assert result.is_novel is False
+        assert result.category == "Parent"
+
+    def test_classify_ood_stops_at_stage_one(self, empty_taxonomy):
+        """Novel detection at Stage 1 must not be affected by children."""
+        parent_embs = np.array([[1.0, 0.0, 0.0]], dtype=np.float32)
+        child_embs  = np.array([[0.9, 0.1, 0.0]], dtype=np.float32)
+
+        empty_taxonomy.add_category("Parent", "P",  "fp", parent_embs, ["id1"], parent_name=None)
+        empty_taxonomy.add_category("Child",  "C",  "fc", child_embs,  ["id2"], parent_name="Parent")
+
+        # Embedding far from the parent cluster → should be OOD before Stage 2
+        query = make_unit_vector([-1.0, 0.0, 0.0])
+        result = empty_taxonomy.classify(query, "f", "test.txt")
+
+        assert result.is_novel is True
+        assert result.category is None

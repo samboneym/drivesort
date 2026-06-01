@@ -28,25 +28,45 @@ TOKEN_PATH = Path("data/token.json")
 CREDENTIALS_PATH = Path("data/credentials.json")
 
 
+def _duration_hint(ms: int) -> str:
+    """Convert milliseconds to a human-readable duration string for embedding."""
+    secs = ms // 1000
+    if secs < 60:
+        return f"short video clip {secs} seconds"
+    mins = secs // 60
+    if mins < 10:
+        return f"short video {mins} minutes"
+    if mins < 60:
+        return f"video {mins} minutes"
+    hours = mins // 60
+    remaining_mins = mins % 60
+    return f"long video {hours} hours {remaining_mins} minutes"
+
+
 class DriveFile:
     """Lightweight value object representing one Drive file or folder."""
 
     __slots__ = (
         "id", "name", "mime_type", "extension", "parent_id",
         "size_bytes", "snippet", "created", "modified", "is_folder",
+        "description", "video_duration_ms",
     )
 
     def __init__(self, raw: dict) -> None:
-        self.id          = raw["id"]
-        self.name        = raw.get("name", "")
-        self.mime_type   = raw.get("mimeType", "")
-        self.extension   = raw.get("fileExtension", "").lower()
-        self.parent_id   = (raw.get("parents") or [None])[0]
-        self.size_bytes  = int(raw.get("size", 0))
-        self.snippet     = raw.get("contentHints", {}).get("indexableText", "")
-        self.created     = raw.get("createdTime", "")
-        self.modified    = raw.get("modifiedTime", "")
-        self.is_folder   = self.mime_type == "application/vnd.google-apps.folder"
+        self.id               = raw["id"]
+        self.name             = raw.get("name", "")
+        self.mime_type        = raw.get("mimeType", "")
+        self.extension        = raw.get("fileExtension", "").lower()
+        self.parent_id        = (raw.get("parents") or [None])[0]
+        self.size_bytes       = int(raw.get("size", 0))
+        self.snippet          = raw.get("contentHints", {}).get("indexableText", "")
+        self.created          = raw.get("createdTime", "")
+        self.modified         = raw.get("modifiedTime", "")
+        self.is_folder        = self.mime_type == "application/vnd.google-apps.folder"
+        self.description      = raw.get("description", "")
+        self.video_duration_ms = int(
+            raw.get("videoMediaMetadata", {}).get("durationMillis", 0)
+        )
 
     def text_for_embedding(self) -> str:
         """Concatenate the signals available without downloading the file."""
@@ -55,6 +75,10 @@ class DriveFile:
             parts.append(self.snippet[:400])
         if self.extension:
             parts.append(self.extension)
+        if self.description:
+            parts.append(self.description[:300])
+        if self.video_duration_ms:
+            parts.append(_duration_hint(self.video_duration_ms))
         return " ".join(parts)
 
     def __repr__(self) -> str:
@@ -76,7 +100,8 @@ class DriveClient:
     _LIST_FIELDS = (
         "nextPageToken,"
         "files(id,name,mimeType,fileExtension,parents,size,"
-        "contentHints/indexableText,createdTime,modifiedTime)"
+        "contentHints/indexableText,createdTime,modifiedTime,"
+        "description,videoMediaMetadata/durationMillis)"
     )
 
     def __init__(
@@ -155,12 +180,27 @@ class DriveClient:
                 break
 
     def list_folders(self) -> list[DriveFile]:
-        """Return all top-level folders owned by the user."""
+        """Return all folders owned by the user."""
         resp = (
             self._service.files()
             .list(
                 q="mimeType = 'application/vnd.google-apps.folder' "
                   "and trashed = false and 'me' in owners",
+                fields="files(id,name,mimeType,parents)",
+                pageSize=200,
+            )
+            .execute()
+        )
+        return [DriveFile(r) for r in resp.get("files", [])]
+
+    def list_folders_in(self, parent_id: str) -> list[DriveFile]:
+        """Return all folders whose direct parent is parent_id."""
+        resp = (
+            self._service.files()
+            .list(
+                q=f"mimeType = 'application/vnd.google-apps.folder' "
+                  f"and trashed = false "
+                  f"and '{parent_id}' in parents",
                 fields="files(id,name,mimeType,parents)",
                 pageSize=200,
             )
@@ -196,8 +236,9 @@ class DriveClient:
         ).execute()
 
     def find_or_create_folder(self, name: str, parent_id: str | None = None) -> DriveFile:
-        """Return an existing folder with this name, or create it."""
-        for folder in self.list_folders():
+        """Return an existing folder with this name under parent_id, or create it."""
+        candidates = self.list_folders_in(parent_id) if parent_id else self.list_folders()
+        for folder in candidates:
             if folder.name == name:
                 return folder
         return self.create_folder(name, parent_id)

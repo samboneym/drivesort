@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+import numpy as np
 from rich import print as rprint
 from rich.console import Console
 from rich.panel import Panel
@@ -24,9 +25,9 @@ from rich.table import Table
 from rich.prompt import Prompt, Confirm
 from rich import box
 
-from .clusterer import Cluster, ClusterResult
+from .clusterer import Cluster, ClusterResult, Clusterer
 from .drive import DriveClient, DriveFile
-from .taxonomy import Taxonomy
+from .taxonomy import Taxonomy, SUB_CLUSTER_MIN_FILES
 from .embedder import Embedder
 
 console = Console()
@@ -52,10 +53,11 @@ def _file_table(files: list[DriveFile], max_rows: int = 8) -> Table:
 def run_bootstrap(
     result: ClusterResult,
     files: list[DriveFile],
-    embeddings,          # np.ndarray
+    embeddings: np.ndarray,
     drive: DriveClient,
     taxonomy: Taxonomy,
     embedder: Embedder,
+    clusterer: Optional[Clusterer] = None,
 ) -> None:
     """
     Walk the human through each cluster interactively.
@@ -67,11 +69,11 @@ def run_bootstrap(
         f"and [bold]{len(result.outlier_files)}[/bold] unclustered files.\n"
     )
 
-    # Map filename → embedding for later centroid calculation
+    # Map file id → embedding for later centroid calculation
     file_emb_map = {f.id: embeddings[i] for i, f in enumerate(files)}
 
-    # Track decisions for merge resolution
-    accepted: dict[str, tuple[Cluster, str]] = {}  # name → (cluster, final_name)
+    # name → (cluster, final_name, sub_result_or_None)
+    accepted: dict[str, tuple[Cluster, str, Optional[ClusterResult]]] = {}
 
     # ------------------------------------------------------------------
     # Review each cluster
@@ -85,15 +87,20 @@ def run_bootstrap(
         if choice == "a":
             name = cluster.suggested_name
             cluster.accepted_name = name
-            accepted[name] = (cluster, name)
+            sub = _maybe_offer_sub_clustering(cluster, file_emb_map, clusterer)
+            accepted[name] = (cluster, name, sub)
             console.print(f"[green]✓ Accepted:[/green] [bold]{name}[/bold]\n")
 
         elif choice == "r":
             name = Prompt.ask("  Folder name").strip()
-            desc = Prompt.ask("  Description (Enter to keep suggestion)", default=cluster.suggested_description).strip()
+            desc = Prompt.ask(
+                "  Description (Enter to keep suggestion)",
+                default=cluster.suggested_description,
+            ).strip()
             cluster.accepted_name = name
             cluster.suggested_description = desc
-            accepted[name] = (cluster, name)
+            sub = _maybe_offer_sub_clustering(cluster, file_emb_map, clusterer)
+            accepted[name] = (cluster, name, sub)
             console.print(f"[green]✓ Renamed to:[/green] [bold]{name}[/bold]\n")
 
         elif choice == "m":
@@ -115,14 +122,19 @@ def run_bootstrap(
     for cluster in result.clusters:
         if cluster.merged_into:
             if cluster.merged_into in accepted:
-                target_cluster, target_name = accepted[cluster.merged_into]
+                target_cluster, target_name, _ = accepted[cluster.merged_into]
                 target_cluster.files.extend(cluster.files)
-                console.print(f"[cyan]Merged[/cyan] '{cluster.suggested_name}' → '{target_name}'")
+                console.print(
+                    f"[cyan]Merged[/cyan] '{cluster.suggested_name}' → '{target_name}'"
+                )
             else:
-                console.print(f"[yellow]Merge target '{cluster.merged_into}' not found — sending to Archive[/yellow]")
-                archive_cluster = accepted.get("Archive")
-                if archive_cluster:
-                    archive_cluster[0].files.extend(cluster.files)
+                console.print(
+                    f"[yellow]Merge target '{cluster.merged_into}' not found"
+                    " — sending to Archive[/yellow]"
+                )
+                archive_entry = accepted.get("Archive")
+                if archive_entry:
+                    archive_entry[0].files.extend(cluster.files)
 
     # ------------------------------------------------------------------
     # Handle outliers
@@ -149,7 +161,7 @@ def run_bootstrap(
     # Ensure Archive exists
     archive_folder = _find_or_create_folder(drive, "Archive", None)
 
-    for name, (cluster, final_name) in accepted.items():
+    for name, (cluster, final_name, sub_result) in accepted.items():
         if cluster.rejected or cluster.merged_into:
             continue
 
@@ -157,7 +169,6 @@ def run_bootstrap(
         folder = _find_or_create_folder(drive, final_name, None)
         console.print("[green]✓[/green]")
 
-        # Collect member embeddings
         member_embs = [
             file_emb_map[f.id]
             for f in cluster.files
@@ -165,21 +176,45 @@ def run_bootstrap(
         ]
         member_ids = [f.id for f in cluster.files]
 
-        import numpy as np
         if member_embs:
-            emb_matrix = np.stack(member_embs)
             taxonomy.add_category(
                 name=final_name,
                 description=cluster.suggested_description,
                 folder_id=folder.id,
-                member_embeddings=emb_matrix,
+                member_embeddings=np.stack(member_embs),
                 member_ids=member_ids,
+                parent_name=None,
             )
+
+        if sub_result is not None:
+            for sc in sub_result.clusters:
+                sub_name = sc.accepted_name or sc.suggested_name
+                console.print(f"    Creating sub-folder [cyan]{sub_name}[/cyan]…", end=" ")
+                sub_folder = _find_or_create_folder(drive, sub_name, folder.id)
+                console.print("[green]✓[/green]")
+
+                sub_embs = [
+                    file_emb_map[f.id]
+                    for f in sc.files
+                    if f.id in file_emb_map
+                ]
+                sub_ids = [f.id for f in sc.files]
+
+                if sub_embs:
+                    taxonomy.add_category(
+                        name=sub_name,
+                        description=sc.suggested_description,
+                        folder_id=sub_folder.id,
+                        member_embeddings=np.stack(sub_embs),
+                        member_ids=sub_ids,
+                        parent_name=final_name,
+                    )
 
     # Add Archive to taxonomy if not already present
     if "Archive" not in taxonomy.category_names:
-        archive_emb = embedder.embed_text("archive old backup historical reference dormant")
-        import numpy as np
+        archive_emb = embedder.embed_text(
+            "archive old backup historical reference dormant"
+        )
         taxonomy.add_category(
             name="Archive",
             description="Old, dormant, or historical files",
@@ -222,10 +257,80 @@ def _prompt_action() -> str:
         console.print("[red]Please enter A, R, M, S, or Q[/red]")
 
 
-def _find_or_create_folder(drive: DriveClient, name: str, parent_id: Optional[str]) -> DriveFile:
-    """Return existing folder with this name, or create it."""
-    existing = drive.list_folders()
-    for folder in existing:
-        if folder.name == name:
-            return folder
-    return drive.create_folder(name, parent_id)
+def _find_or_create_folder(
+    drive: DriveClient, name: str, parent_id: Optional[str]
+) -> DriveFile:
+    return drive.find_or_create_folder(name, parent_id)
+
+
+def _maybe_offer_sub_clustering(
+    cluster: Cluster,
+    file_emb_map: dict[str, np.ndarray],
+    clusterer: Optional[Clusterer],
+) -> Optional[ClusterResult]:
+    """
+    If the cluster is large enough and the user opts in, run a sub-clustering
+    pass and let the user name each sub-cluster interactively.
+
+    Returns a ClusterResult (with only accepted sub-clusters) or None.
+    """
+    if clusterer is None or cluster.size < SUB_CLUSTER_MIN_FILES:
+        return None
+
+    if not Confirm.ask(
+        f"  Create sub-folders inside [bold]{cluster.accepted_name}[/bold]?",
+        default=False,
+    ):
+        return None
+
+    cluster_embs = np.stack([
+        file_emb_map[f.id] for f in cluster.files if f.id in file_emb_map
+    ])
+
+    sub_result = clusterer.sub_cluster(files=cluster.files, embeddings=cluster_embs)
+
+    if sub_result is None:
+        console.print(
+            "[yellow]  Sub-clustering produced fewer than 2 groups"
+            " — keeping as a single folder.[/yellow]"
+        )
+        return None
+
+    console.print(
+        f"\n  Found [bold]{len(sub_result.clusters)}[/bold] sub-clusters "
+        f"({len(sub_result.outlier_files)} files will stay in the parent folder):\n"
+    )
+
+    accepted_subs: list[Cluster] = []
+    for j, sc in enumerate(sub_result.clusters):
+        console.print(
+            f"    [dim]Sub-cluster {j + 1}/{len(sub_result.clusters)}[/dim]  "
+            f"[bold]{sc.suggested_name}[/bold]  ({sc.size} files)"
+        )
+        console.print(_file_table(sc.files, max_rows=4))
+
+        sub_choice = Prompt.ask(
+            "    [A]ccept  [R]ename  [S]kip", default="a"
+        ).strip().lower()
+
+        if sub_choice == "a":
+            sc.accepted_name = sc.suggested_name
+            accepted_subs.append(sc)
+            console.print(f"    [green]✓ Sub-folder:[/green] {sc.suggested_name}\n")
+        elif sub_choice == "r":
+            sub_name = Prompt.ask("    Sub-folder name").strip()
+            sc.accepted_name = sub_name
+            accepted_subs.append(sc)
+            console.print(f"    [green]✓ Sub-folder renamed to:[/green] {sub_name}\n")
+        else:
+            console.print("    [dim]Skipped — files will stay in parent folder[/dim]\n")
+
+    if len(accepted_subs) < 2:
+        console.print(
+            "[yellow]  Fewer than 2 sub-clusters accepted"
+            " — keeping as a single folder.[/yellow]"
+        )
+        return None
+
+    sub_result.clusters[:] = accepted_subs
+    return sub_result

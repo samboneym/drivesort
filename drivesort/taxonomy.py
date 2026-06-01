@@ -23,6 +23,8 @@ import numpy as np
 TAXONOMY_PATH = Path("data/taxonomy.json")
 OOD_LOG_PATH  = Path("data/novel_files.json")
 
+SUB_CLUSTER_MIN_FILES = 6  # minimum cluster size to offer sub-clustering in bootstrap
+
 
 @dataclass
 class CategoryEntry:
@@ -32,6 +34,7 @@ class CategoryEntry:
     centroid: list[float]     # mean embedding of confirmed member files
     member_count: int = 0
     member_ids: list[str] = field(default_factory=list)  # Drive file IDs
+    parent_name: Optional[str] = None  # None = top-level category
 
     def centroid_array(self) -> np.ndarray:
         return np.array(self.centroid, dtype=np.float32)
@@ -75,10 +78,10 @@ class Taxonomy:
     def _load(self) -> None:
         if self._path.exists():
             raw = json.loads(self._path.read_text())
-            self._categories = {
-                name: CategoryEntry(**entry)
-                for name, entry in raw.items()
-            }
+            self._categories = {}
+            for name, entry in raw.items():
+                entry.setdefault("parent_name", None)
+                self._categories[name] = CategoryEntry(**entry)
 
     def save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -100,6 +103,7 @@ class Taxonomy:
         folder_id: str,
         member_embeddings: np.ndarray,
         member_ids: list[str],
+        parent_name: Optional[str] = None,
     ) -> None:
         """Add a new category from bootstrapped cluster members."""
         centroid = member_embeddings.mean(axis=0)
@@ -111,6 +115,7 @@ class Taxonomy:
             centroid=centroid.tolist(),
             member_count=len(member_ids),
             member_ids=member_ids,
+            parent_name=parent_name,
         )
 
     def remove_category(self, name: str) -> None:
@@ -133,42 +138,79 @@ class Taxonomy:
     def is_empty(self) -> bool:
         return len(self._categories) == 0
 
+    def top_level_categories(self) -> dict[str, CategoryEntry]:
+        return {n: e for n, e in self._categories.items() if e.parent_name is None}
+
+    def children_of(self, parent_name: str) -> dict[str, CategoryEntry]:
+        return {n: e for n, e in self._categories.items() if e.parent_name == parent_name}
+
+    @property
+    def all_folder_ids(self) -> set[str]:
+        return {e.folder_id for e in self._categories.values()}
+
     # ------------------------------------------------------------------
     # Classification
     # ------------------------------------------------------------------
 
     def classify(self, embedding: np.ndarray, file_id: str = "", file_name: str = "") -> ClassificationResult:
         """
-        Find the nearest category for a file embedding.
-        If the minimum distance exceeds `novelty_threshold`, mark it as novel.
+        Two-stage classification:
+          Stage 1 — nearest top-level category; OOD check happens here only.
+          Stage 2 — if that category has children, find the nearest child and
+                    return it (its folder_id is the move target).
         """
-        if not self._categories:
+        top_level = self.top_level_categories()
+        if not top_level:
             return ClassificationResult(
                 file_id=file_id, file_name=file_name,
                 category=None, confidence=0.0, distance=1.0, is_novel=True,
             )
 
-        # Cosine distance = 1 - dot(a,b) for normalised vectors
+        # Stage 1: nearest top-level category
         distances = {
             name: float(1.0 - np.dot(embedding, entry.centroid_array()))
-            for name, entry in self._categories.items()
+            for name, entry in top_level.items()
         }
+        sorted_top = sorted(distances.items(), key=lambda x: x[1])
+        best_name, best_dist = sorted_top[0]
+        runner_up_name = sorted_top[1][0] if len(sorted_top) > 1 else None
+        runner_up_conf = max(0.0, 1.0 - sorted_top[1][1]) if runner_up_name else 0.0
 
-        sorted_cats = sorted(distances.items(), key=lambda x: x[1])
-        best_name, best_dist   = sorted_cats[0]
-        best_conf              = max(0.0, 1.0 - best_dist)
-        runner_up_name         = sorted_cats[1][0] if len(sorted_cats) > 1 else None
-        runner_up_conf         = max(0.0, 1.0 - sorted_cats[1][1]) if runner_up_name else 0.0
+        if best_dist > self._threshold:
+            return ClassificationResult(
+                file_id=file_id, file_name=file_name,
+                category=None,
+                confidence=max(0.0, 1.0 - best_dist),
+                distance=best_dist,
+                is_novel=True,
+                runner_up=runner_up_name,
+                runner_up_confidence=runner_up_conf,
+            )
 
-        is_novel = best_dist > self._threshold
+        # Stage 2: route to nearest child if any exist
+        children = self.children_of(best_name)
+        if children:
+            child_distances = {
+                name: float(1.0 - np.dot(embedding, entry.centroid_array()))
+                for name, entry in children.items()
+            }
+            best_child_name, best_child_dist = min(child_distances.items(), key=lambda x: x[1])
+            return ClassificationResult(
+                file_id=file_id, file_name=file_name,
+                category=best_child_name,
+                confidence=max(0.0, 1.0 - best_child_dist),
+                distance=best_child_dist,
+                is_novel=False,
+                runner_up=runner_up_name,
+                runner_up_confidence=runner_up_conf,
+            )
 
         return ClassificationResult(
-            file_id=file_id,
-            file_name=file_name,
-            category=None if is_novel else best_name,
-            confidence=best_conf,
+            file_id=file_id, file_name=file_name,
+            category=best_name,
+            confidence=max(0.0, 1.0 - best_dist),
             distance=best_dist,
-            is_novel=is_novel,
+            is_novel=False,
             runner_up=runner_up_name,
             runner_up_confidence=runner_up_conf,
         )
