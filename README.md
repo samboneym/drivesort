@@ -33,19 +33,28 @@ Ongoing scan
 
 ## Setup
 
-### 1. Python environment
+### 1. Install dependencies with uv
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -e .
+uv sync --extra dev
 ```
+
+This installs all Python dependencies into `.venv/` and sets up pytest for testing.
 
 ### 2. Ollama (local LLM for cluster naming)
 
+**Option A: Using mise (recommended)**
+```bash
+# Install mise from https://mise.jq.rs
+mise install      # Installs ollama from mise.toml
+mise exec ollama pull phi3:mini   # ~2 GB, fast, works well
+```
+
+**Option B: Manual installation**
 ```bash
 # Install from https://ollama.com
-ollama pull phi3:mini             # ~2 GB, fast, works well
+ollama pull phi3:mini    # ~2 GB, fast
+# or try: ollama pull mistral (4.1 GB, higher quality)
 ```
 
 ### 3. Google Drive credentials
@@ -152,3 +161,28 @@ drivesort/
 | `google-api-python-client` | Drive API |
 | `rich` | Terminal UI |
 | `typer` | CLI framework |
+
+---
+
+## Development
+
+### Run tests
+
+```bash
+uv run pytest tests/
+```
+
+### Interactive commands via uv
+
+```bash
+uv run drivesort bootstrap
+uv run drivesort scan --live
+uv run drivesort status
+```
+
+Or activate the venv and use `drivesort` directly:
+
+```bash
+source .venv/bin/activate
+drivesort bootstrap
+```
