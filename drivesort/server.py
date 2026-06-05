@@ -19,7 +19,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import auth, analysis, taxonomy, draft, stage, scan, cache, ws as ws_router
+from .api import auth, analysis, taxonomy, draft, stage, scan, cache, files, ws as ws_router
 
 app = FastAPI(title="DriveSort", version="0.2.0")
 
@@ -37,4 +37,5 @@ app.include_router(draft.router,    prefix="/api/draft",    tags=["draft"])
 app.include_router(stage.router,    prefix="/api/stage",    tags=["stage"])
 app.include_router(scan.router,     prefix="/api/scan",     tags=["scan"])
 app.include_router(cache.router,    prefix="/api/cache",    tags=["cache"])
+app.include_router(files.router,    prefix="/api/files",    tags=["files"])
 app.include_router(ws_router.router, tags=["ws"])

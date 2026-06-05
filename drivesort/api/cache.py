@@ -9,9 +9,10 @@ DELETE /api/cache/all                       — wipe all caches (destructive)
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -24,15 +25,17 @@ LLM_CACHE     = Path("data/llm_name_cache.json")
 
 def _cache_stat(path: Path) -> dict:
     if not path.exists():
-        return {"entries": 0, "size_bytes": 0}
-    size = path.stat().st_size
+        return {"entries": 0, "size_bytes": 0, "last_updated": None}
+    stat = path.stat()
+    size = stat.st_size
+    last_updated = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
     if path.suffix == ".json":
         try:
             data = json.loads(path.read_text())
-            return {"entries": len(data) if isinstance(data, dict) else 1, "size_bytes": size}
+            return {"entries": len(data) if isinstance(data, dict) else 1, "size_bytes": size, "last_updated": last_updated}
         except Exception:
             pass
-    return {"entries": 1, "size_bytes": size}
+    return {"entries": 1, "size_bytes": size, "last_updated": last_updated}
 
 
 class FileInvalidatePayload(BaseModel):
@@ -81,6 +84,14 @@ def invalidate_folder(payload: FolderInvalidatePayload):
     }
 
 
+_LAYER_MAP: dict[str, Path] = {
+    "content":    CONTENT_CACHE,
+    "embeddings": EMBED_CACHE,
+    "clustering": CLUSTER_CACHE,
+    "llm_names":  LLM_CACHE,
+}
+
+
 @router.delete("/all")
 def clear_all_caches():
     cleared = []
@@ -89,3 +100,14 @@ def clear_all_caches():
             p.unlink()
             cleared.append(p.name)
     return {"cleared": cleared}
+
+
+@router.delete("/{layer}")
+def clear_layer(layer: str):
+    path = _LAYER_MAP.get(layer)
+    if path is None:
+        raise HTTPException(404, f"Unknown cache layer: {layer!r}")
+    if path.exists():
+        path.unlink()
+        return {"cleared": layer}
+    return {"cleared": None}

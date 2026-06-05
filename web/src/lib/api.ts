@@ -3,7 +3,7 @@ import type {
   TaxonomyNode, AddNodePayload, PatchNodePayload, ConfirmPayload,
   DraftState, SaveDraftPayload,
   StageEntry,
-  ScanQueueItem, CorrectPayload,
+  ScanQueueItem, ScanStats, CorrectPayload,
   CacheStatus,
   DriveFileMeta,
 } from './types'
@@ -83,6 +83,7 @@ export const api = {
 
   scan: {
     trigger: () => post<{ status: string }>('/api/scan/trigger'),
+    stats:   () => get<ScanStats>('/api/scan/stats'),
     queue:   () => get<ScanQueueItem[]>('/api/scan/queue'),
     accept:  (fileId: string) => post<{ accepted: string; path: string | null }>(`/api/scan/queue/${fileId}/accept`),
     correct: (fileId: string, p: CorrectPayload) => post<{ corrected: string; path: string }>(`/api/scan/queue/${fileId}/correct`, p),
@@ -96,6 +97,7 @@ export const api = {
     status:          () => get<CacheStatus>('/api/cache/status'),
     invalidateFile:  (fileId: string)   => post<{ invalidated: boolean }>('/api/cache/invalidate/file', { file_id: fileId }),
     invalidateFolder:(folderId: string) => post<{ invalidated: number }>('/api/cache/invalidate/folder', { folder_id: folderId }),
+    clearLayer:      (layer: string)    => del<{ cleared: string | null }>(`/api/cache/${encodeURIComponent(layer)}`),
     clearAll:        () => del<{ cleared: boolean }>('/api/cache/all'),
   },
 }

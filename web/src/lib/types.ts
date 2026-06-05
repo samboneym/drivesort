@@ -114,6 +114,14 @@ export interface CorrectPayload {
   embedding: number[]
 }
 
+// ---- Scan Stats ----
+
+export interface ScanStats {
+  queued: number
+  accepted: number
+  corrected: number
+}
+
 // ---- Cache ----
 
 export interface CacheLayerStatus {

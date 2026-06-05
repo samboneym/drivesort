@@ -14,6 +14,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
 QUEUE_PATH = Path("data/scan_queue.json")
+STATS_PATH = Path("data/scan_stats.json")
 
 router = APIRouter()
 
@@ -29,6 +30,19 @@ def _save_queue(queue: list[dict]) -> None:
     QUEUE_PATH.write_text(json.dumps(queue, indent=2))
 
 
+def _load_stats() -> dict:
+    if not STATS_PATH.exists():
+        return {"accepted": 0, "corrected": 0}
+    return json.loads(STATS_PATH.read_text())
+
+
+def _inc_stat(key: str) -> None:
+    stats = _load_stats()
+    stats[key] = stats.get(key, 0) + 1
+    STATS_PATH.parent.mkdir(exist_ok=True)
+    STATS_PATH.write_text(json.dumps(stats))
+
+
 class CorrectPayload(BaseModel):
     path: str
     embedding: list[float]
@@ -38,6 +52,17 @@ class CorrectPayload(BaseModel):
 async def trigger_scan(background_tasks: BackgroundTasks):
     background_tasks.add_task(_run_scan)
     return {"status": "started"}
+
+
+@router.get("/stats")
+def get_stats():
+    stats = _load_stats()
+    queue = _load_queue()
+    return {
+        "queued":    len(queue),
+        "accepted":  stats.get("accepted", 0),
+        "corrected": stats.get("corrected", 0),
+    }
 
 
 @router.get("/queue")
@@ -69,6 +94,7 @@ def accept_placement(file_id: str):
 
     queue = [i for i in queue if i["file_id"] != file_id]
     _save_queue(queue)
+    _inc_stat("accepted")
     return {"accepted": file_id, "path": path}
 
 
@@ -97,6 +123,7 @@ def correct_placement(file_id: str, payload: CorrectPayload):
 
     queue = [i for i in queue if i["file_id"] != file_id]
     _save_queue(queue)
+    _inc_stat("corrected")
     return {"corrected": file_id, "path": payload.path}
 
 
@@ -112,7 +139,7 @@ async def _run_scan() -> None:
         return
 
     drive = DriveClient()
-    files = list(drive.list_files())
+    files = list(drive.iter_files())
     organised_ids = {fid for node in tax.nodes.values() for fid in node.member_ids}
     new_files = [f for f in files if f.id not in organised_ids]
 
