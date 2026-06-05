@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING, Callable, Iterable
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -55,9 +55,21 @@ class Embedder:
         self,
         files: Iterable[DriveFile],
         show_progress: bool = True,
+        progress_callback: Callable[[int, int, int], None] | None = None,
     ) -> tuple[list[DriveFile], np.ndarray]:
         """
         Embed a collection of files.
+
+        Parameters
+        ----------
+        files : Iterable[DriveFile]
+            Files to embed.
+        show_progress : bool
+            Whether to display a progress bar during batch encoding.
+        progress_callback : callable(done, total, cached) -> None, optional
+            Called once after all embeddings are computed with final counts.
+            ``done`` and ``total`` are both ``len(files)``;
+            ``cached`` is the number served from cache.
 
         Returns
         -------
@@ -80,6 +92,8 @@ class Embedder:
             else:
                 misses.append((i, f, key))
 
+        cached = len(files_list) - len(misses)
+
         # Batch-encode misses
         if misses:
             if self._extractor is not None:
@@ -98,6 +112,9 @@ class Embedder:
 
             self._save_cache()
 
+        if progress_callback is not None:
+            progress_callback(len(files_list), len(files_list), cached)
+
         matrix = np.stack([hit_map[i] for i in range(len(files_list))], axis=0)
         return files_list, matrix.astype(np.float32)
 
@@ -108,6 +125,10 @@ class Embedder:
             convert_to_numpy=True,
             normalize_embeddings=True,
         ).astype(np.float32)
+
+    def cache_key(self, f: DriveFile) -> str:
+        """Public alias for :meth:`_cache_key`."""
+        return self._cache_key(f)
 
     # ------------------------------------------------------------------
     # Cache helpers

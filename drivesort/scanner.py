@@ -227,7 +227,7 @@ class Scanner:
 
             if action == "a":
                 if not self._dry_run:
-                    self._drive.move_file(d.file, d.target_folder_id)
+                    self._drive._move_file_obj(d.file, d.target_folder_id)
                     if d.file.id in embeddings_map:
                         self._taxonomy.confirm(
                             d.target_folder_name, d.file.id, embeddings_map[d.file.id]
@@ -243,7 +243,7 @@ class Scanner:
                     chosen = folder_names[int(idx_str)]
                     folder_id = self._taxonomy.categories[chosen].folder_id
                     if not self._dry_run:
-                        self._drive.move_file(d.file, folder_id)
+                        self._drive._move_file_obj(d.file, folder_id)
                         if d.file.id in embeddings_map:
                             self._taxonomy.confirm(
                                 chosen, d.file.id, embeddings_map[d.file.id]
@@ -288,7 +288,7 @@ class Scanner:
                     if Confirm.ask(f"  Create '{new_folder}' and move this file?", default=False):
                         if not self._dry_run:
                             folder = self._drive.create_folder(new_folder)
-                            self._drive.move_file(d.file, folder.id)
+                            self._drive._move_file_obj(d.file, folder.id)
                             emb = embeddings_map.get(d.file.id)
                             if emb is not None:
                                 self._taxonomy.add_category(
@@ -381,7 +381,7 @@ class Scanner:
     ) -> None:
         for d in decisions:
             try:
-                self._drive.move_file(d.file, d.target_folder_id)
+                self._drive._move_file_obj(d.file, d.target_folder_id)
                 if update_centroids and d.file.id in embeddings_map:
                     self._taxonomy.confirm(
                         d.target_folder_name,

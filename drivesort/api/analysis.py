@@ -93,7 +93,7 @@ async def _run_analysis() -> None:
 
         params = {"min_cluster_size": 5, "umap_n_neighbors": 30}
         cluster_cache = ClusterCache()
-        emb_keys = [embedder._cache_key(f) for f in files]
+        emb_keys = [embedder.cache_key(f) for f in files]
         cached_entry = cluster_cache.load(emb_keys, params)
 
         if cached_entry is not None:

@@ -245,9 +245,26 @@ class DriveClient:
             _, done = downloader.next_chunk()
         return buf.getvalue()
 
-    def move_file(self, file: DriveFile, target_folder_id: str) -> None:
+    def move_file(self, file_id: str, target_folder_id: str) -> None:
         """
-        Move a file to a different folder.
+        Move a file to a different folder (accepts string IDs).
+        Raises HttpError on failure.
+        """
+        file_meta = self._service.files().get(
+            fileId=file_id, fields="parents"
+        ).execute()
+        previous_parents = ",".join(file_meta.get("parents", []))
+        self._service.files().update(
+            fileId=file_id,
+            addParents=target_folder_id,
+            removeParents=previous_parents,
+            fields="id, parents",
+        ).execute()
+
+    def _move_file_obj(self, file: DriveFile, target_folder_id: str) -> None:
+        """
+        Move a file to a different folder using a DriveFile object.
+        Kept for internal use by legacy callers (e.g. scanner.py).
         Raises HttpError on failure.
         """
         if file.parent_id == target_folder_id:
