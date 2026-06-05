@@ -129,6 +129,14 @@ export interface CacheStatus {
   llm_names: CacheLayerStatus
 }
 
+// ---- Files ----
+
+export interface DriveFileMeta {
+  id: string
+  name: string
+  mimeType: string
+}
+
 // ---- WebSocket Events ----
 
 export type WsEvent =
