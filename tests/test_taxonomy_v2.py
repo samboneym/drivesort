@@ -90,3 +90,63 @@ class TestPersistence:
     def test_load_missing_file_returns_empty(self, tmp_path_taxonomy):
         loaded = TaxonomyV2.load(path=tmp_path_taxonomy)
         assert loaded.nodes == {}
+
+
+class TestClassify:
+    @pytest.fixture
+    def loaded_tax(self, tmp_path_taxonomy):
+        t = TaxonomyV2(path=tmp_path_taxonomy)
+        books_embs = np.stack([make_unit([1, 0, 0]), make_unit([0.95, 0.05, 0])])
+        work_embs  = np.stack([make_unit([0, 1, 0]), make_unit([0, 0.9, 0.1])])
+        t.add_node("books", "Books", parent=None, member_embeddings=books_embs,
+                   member_ids=["a","b"], folder_id="f1")
+        t.add_node("work", "Work", parent=None, member_embeddings=work_embs,
+                   member_ids=["c","d"], folder_id="f2")
+        fantasy_embs = np.stack([make_unit([1, 0, 0])])
+        t.add_node("books/fantasy", "Fantasy", parent="books",
+                   member_embeddings=fantasy_embs, member_ids=["a"], folder_id="f3")
+        return t
+
+    def test_classify_nearest_root(self, loaded_tax):
+        emb = make_unit([1, 0.01, 0])
+        result = loaded_tax.classify(emb, file_id="x", file_name="test.epub")
+        assert result.path == "books/fantasy"
+        assert result.is_novel is False
+        assert result.confidence > 0.9
+
+    def test_classify_novel_when_distant(self, loaded_tax):
+        emb = make_unit([0, 0, 1])  # far from all centroids
+        result = loaded_tax.classify(emb, file_id="x", file_name="test.epub")
+        assert result.is_novel is True
+        assert result.path is None
+
+    def test_classify_empty_taxonomy_is_novel(self, tmp_path_taxonomy):
+        t = TaxonomyV2(path=tmp_path_taxonomy)
+        emb = make_unit([1, 0, 0])
+        result = t.classify(emb, file_id="x", file_name="test.epub")
+        assert result.is_novel is True
+
+    def test_classify_stops_at_leaf(self, loaded_tax):
+        # "books" has child "books/fantasy"; result should reach the leaf
+        emb = make_unit([1, 0.02, 0])
+        result = loaded_tax.classify(emb, file_id="x", file_name="test.epub")
+        assert result.path == "books/fantasy"
+
+
+class TestConfirm:
+    def test_confirm_updates_centroid(self, tax):
+        embs = np.stack([make_unit([1, 0, 0])])
+        tax.add_node("books", "Books", parent=None, member_embeddings=embs,
+                     member_ids=["a"], folder_id="f1")
+        old_centroid = tax.nodes["books"].centroid_array().copy()
+        new_emb = make_unit([0.5, 0.5, 0])
+        tax.confirm("books", new_emb, file_id="b")
+        new_centroid = tax.nodes["books"].centroid_array()
+        assert not np.allclose(old_centroid, new_centroid)
+        assert abs(np.linalg.norm(new_centroid) - 1.0) < 1e-5
+        assert tax.nodes["books"].member_count == 2
+        assert "b" in tax.nodes["books"].member_ids
+
+    def test_confirm_unknown_node_raises(self, tax):
+        with pytest.raises(KeyError):
+            tax.confirm("nonexistent", make_unit([1, 0, 0]), file_id="x")

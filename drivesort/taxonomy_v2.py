@@ -94,6 +94,73 @@ class TaxonomyV2:
         return list(reversed(result))
 
     # ------------------------------------------------------------------
+    # Classification
+    # ------------------------------------------------------------------
+
+    def classify(
+        self,
+        embedding: np.ndarray,
+        file_id: str,
+        file_name: str,
+    ) -> ClassificationResult:
+        roots = self.children_of(None)
+        if not roots:
+            return ClassificationResult(file_id=file_id, file_name=file_name,
+                                        path=None, confidence=0.0, distance=1.0,
+                                        is_novel=True)
+        best_node, best_dist = self._closest(roots, embedding)
+        if best_dist > self._novelty_threshold:
+            return ClassificationResult(file_id=file_id, file_name=file_name,
+                                        path=None, confidence=0.0,
+                                        distance=best_dist, is_novel=True)
+        # Walk down the tree
+        while True:
+            children = self.children_of(best_node.path)
+            if not children:
+                break
+            child, dist = self._closest(children, embedding)
+            if dist > self._novelty_threshold:
+                break
+            best_node, best_dist = child, dist
+
+        return ClassificationResult(
+            file_id=file_id,
+            file_name=file_name,
+            path=best_node.path,
+            confidence=1.0 - best_dist,
+            distance=best_dist,
+            is_novel=False,
+        )
+
+    def _closest(
+        self, nodes: list[TaxonomyNode], embedding: np.ndarray
+    ) -> tuple[TaxonomyNode, float]:
+        best_node = nodes[0]
+        best_dist = float("inf")
+        for node in nodes:
+            dist = float(1.0 - np.dot(embedding, node.centroid_array()))
+            if dist < best_dist:
+                best_dist = dist
+                best_node = node
+        return best_node, best_dist
+
+    # ------------------------------------------------------------------
+    # Active learning
+    # ------------------------------------------------------------------
+
+    def confirm(self, path: str, embedding: np.ndarray, file_id: str) -> None:
+        """Update the centroid of a node with a newly confirmed file embedding."""
+        node = self.nodes[path]  # raises KeyError if missing — caller's bug
+        n = node.member_count
+        old_c = node.centroid_array()
+        new_c = (old_c * n + embedding) / (n + 1)
+        new_c = new_c / (np.linalg.norm(new_c) + 1e-8)
+        node.centroid = new_c.tolist()
+        node.member_count = n + 1
+        if file_id not in node.member_ids:
+            node.member_ids.append(file_id)
+
+    # ------------------------------------------------------------------
     # Persistence
     # ------------------------------------------------------------------
 
