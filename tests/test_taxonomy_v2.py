@@ -1,5 +1,4 @@
 """Tests for taxonomy_v2 — node model, persistence, tree navigation."""
-import tempfile
 from pathlib import Path
 
 import numpy as np
