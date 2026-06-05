@@ -35,17 +35,16 @@ These are intentionally consistent: confidence = 1 - distance.
 ## Commands
 
 ```bash
-pip install -e .
-drivesort bootstrap [--min-cluster-size N] [--model MODEL] [--vision-model MODEL] [--no-extract]
-drivesort scan [--live] [--no-interact] [--vision-model MODEL] [--no-extract]
-drivesort status
+uv pip install -e .
+drivesort serve [--host HOST] [--port PORT] [--reload]
 ```
+
+Bootstrap, scan, status, and recover have moved to the web UI (`drivesort serve` → http://localhost:7432).
 
 ## Development
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e .
+uv pip install -e ".[dev]"
 pip install pytest
 pytest tests/
 ```
