@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { api } from '@/lib/api'
+import { TopBar } from '@/components/TopBar'
+import type { TopBarProps } from '@/components/TopBar'
 
 // Pages — replaced one-by-one as v0 output arrives
 import { Connect } from '@/pages/setup/Connect'
@@ -10,9 +12,20 @@ import { Commit }  from '@/pages/setup/Commit'
 import { Scan }    from '@/pages/Scan'
 import { Status }  from '@/pages/Status'
 
-export default function App() {
+function deriveTopBarRoute(pathname: string): Pick<TopBarProps, 'wizardStep' | 'section'> {
+  if (pathname.startsWith('/setup/connect'))  return { wizardStep: 'connect'  }
+  if (pathname.startsWith('/setup/analyse'))  return { wizardStep: 'analyse'  }
+  if (pathname.startsWith('/setup/review'))   return { wizardStep: 'review'   }
+  if (pathname.startsWith('/setup/commit'))   return { wizardStep: 'commit'   }
+  if (pathname.startsWith('/scan'))           return { section: 'Scan'        }
+  if (pathname.startsWith('/status'))         return { section: 'Status'      }
+  return {}
+}
+
+function AppShell() {
   const [authEmail, setAuthEmail]   = useState<string | null>(null)
-  const [_draftSaved, setDraftSaved] = useState<string | null>(null)
+  const [draftSaved, setDraftSaved] = useState<string | null>(null)
+  const location = useLocation()
 
   useEffect(() => {
     api.auth.status()
@@ -20,10 +33,17 @@ export default function App() {
       .catch(() => {})
   }, [])
 
+  const { wizardStep, section } = deriveTopBarRoute(location.pathname)
+
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-[#0f1117]">
-      {/* TopBar slot — filled after v0 prompt #1 */}
-      <div id="topbar-slot" className="shrink-0" />
+      <TopBar
+        authEmail={authEmail}
+        wizardStep={wizardStep}
+        section={section}
+        draftSavedAt={draftSaved}
+        onDisconnect={() => setAuthEmail(null)}
+      />
       <div className="flex-1 overflow-hidden">
         <Routes>
           <Route path="/" element={<Navigate to={authEmail ? '/setup/analyse' : '/setup/connect'} replace />} />
@@ -38,4 +58,8 @@ export default function App() {
       </div>
     </div>
   )
+}
+
+export default function App() {
+  return <AppShell />
 }
