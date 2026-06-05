@@ -51,7 +51,6 @@ interface TreeNodeProps {
 }
 
 function TreeNode({ node, depth, stage, expandedPaths, onToggle }: TreeNodeProps) {
-  const children: TaxonomyNode[] = [] // children are rendered by parent iterating sorted list
   const filesForNode = stage.filter(s => s.target_folder_id === node.folder_id || s.target_path.startsWith(node.path + '/') || s.target_path === node.path)
   const isExpanded = expandedPaths.has(node.path)
   const hasFiles = filesForNode.length > 0
