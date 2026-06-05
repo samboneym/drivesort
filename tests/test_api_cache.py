@@ -25,3 +25,24 @@ def test_invalidate_file(client):
     resp = client.post("/api/cache/invalidate/file", json={"file_id": "abc123"})
     assert resp.status_code == 200
     assert resp.json()["invalidated"] == "abc123"
+
+
+def test_clear_layer(client, tmp_path):
+    import json
+    f = tmp_path / "data" / "content_cache.json"
+    f.write_text(json.dumps({"k": "v"}))
+    resp = client.delete("/api/cache/content")
+    assert resp.status_code == 200
+    assert resp.json() == {"cleared": "content"}
+    assert not f.exists()
+
+
+def test_clear_layer_already_empty(client):
+    resp = client.delete("/api/cache/content")
+    assert resp.status_code == 200
+    assert resp.json() == {"cleared": None}
+
+
+def test_clear_layer_unknown(client):
+    resp = client.delete("/api/cache/not_a_real_layer")
+    assert resp.status_code == 404

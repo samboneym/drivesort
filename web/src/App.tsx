@@ -24,6 +24,7 @@ function deriveTopBarRoute(pathname: string): Pick<TopBarProps, 'wizardStep' | '
 
 function AppShell() {
   const [authEmail, setAuthEmail]   = useState<string | null>(null)
+  const [authLoading, setAuthLoading] = useState(true)
   const [draftSaved, setDraftSaved] = useState<string | null>(null)
   const location = useLocation()
 
@@ -31,6 +32,7 @@ function AppShell() {
     api.auth.status()
       .then(s => setAuthEmail(s.authenticated ? s.email : null))
       .catch(() => {})
+      .finally(() => setAuthLoading(false))
   }, [])
 
   const { wizardStep, section } = deriveTopBarRoute(location.pathname)
@@ -46,7 +48,9 @@ function AppShell() {
       />
       <div className="flex-1 overflow-hidden">
         <Routes>
-          <Route path="/" element={<Navigate to={authEmail ? '/setup/analyse' : '/setup/connect'} replace />} />
+          <Route path="/" element={
+            authLoading ? null : <Navigate to={authEmail ? '/setup/analyse' : '/setup/connect'} replace />
+          } />
           <Route path="/setup/connect" element={<Connect onAuth={setAuthEmail} />} />
           <Route path="/setup/analyse" element={<Analyse />} />
           <Route path="/setup/review"  element={<Review onDraftSave={setDraftSaved} />} />

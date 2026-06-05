@@ -75,6 +75,8 @@ def run_bootstrap(
     # name → (cluster, final_name, sub_result_or_None)
     accepted: dict[str, tuple[Cluster, str, Optional[ClusterResult]]] = {}
 
+    archive_overflow: list[DriveFile] = []
+
     # ------------------------------------------------------------------
     # Review each cluster
     # ------------------------------------------------------------------
@@ -132,9 +134,7 @@ def run_bootstrap(
                     f"[yellow]Merge target '{cluster.merged_into}' not found"
                     " — sending to Archive[/yellow]"
                 )
-                archive_entry = accepted.get("Archive")
-                if archive_entry:
-                    archive_entry[0].files.extend(cluster.files)
+                archive_overflow.extend(cluster.files)
 
     # ------------------------------------------------------------------
     # Handle outliers
@@ -212,15 +212,18 @@ def run_bootstrap(
 
     # Add Archive to taxonomy if not already present
     if "Archive" not in taxonomy.category_names:
-        archive_emb = embedder.embed_text(
-            "archive old backup historical reference dormant"
+        base_emb = embedder.embed_text("archive old backup historical reference dormant")
+        overflow_embs = [file_emb_map[f.id] for f in archive_overflow if f.id in file_emb_map]
+        emb_matrix = (
+            np.vstack([base_emb.reshape(1, -1)] + [e.reshape(1, -1) for e in overflow_embs])
+            if overflow_embs else base_emb.reshape(1, -1)
         )
         taxonomy.add_category(
             name="Archive",
             description="Old, dormant, or historical files",
             folder_id=archive_folder.id,
-            member_embeddings=archive_emb.reshape(1, -1),
-            member_ids=[],
+            member_embeddings=emb_matrix,
+            member_ids=[f.id for f in archive_overflow],
         )
 
     taxonomy.save()
