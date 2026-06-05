@@ -5,6 +5,7 @@ import type {
   StageEntry,
   ScanQueueItem, CorrectPayload,
   CacheStatus,
+  DriveFileMeta,
 } from './types'
 
 async function get<T>(url: string): Promise<T> {
@@ -85,6 +86,10 @@ export const api = {
     queue:   () => get<ScanQueueItem[]>('/api/scan/queue'),
     accept:  (fileId: string) => post<{ accepted: string; path: string | null }>(`/api/scan/queue/${fileId}/accept`),
     correct: (fileId: string, p: CorrectPayload) => post<{ corrected: string; path: string }>(`/api/scan/queue/${fileId}/correct`, p),
+  },
+
+  files: {
+    list: () => get<DriveFileMeta[]>('/api/files'),
   },
 
   cache: {
